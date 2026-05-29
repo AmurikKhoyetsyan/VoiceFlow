@@ -207,6 +207,33 @@
         </main>
     </div>
 
+    <!-- Download Fallback Modal (CORS block) -->
+    <div id="download-modal" class="modal">
+        <div class="modal-content card">
+            <div class="card-header">
+                <div class="header-title">
+                    <i data-lucide="shield-alert" class="card-icon text-accent"></i>
+                    <h2>Ограничение загрузки (CORS)</h2>
+                </div>
+                <button id="close-modal" class="btn-sm-action"><i data-lucide="x"></i></button>
+            </div>
+            <div class="card-body" style="padding: 24px; display: flex; flex-direction: column; gap: 16px;">
+                <p>Из-за ограничений безопасности вашего браузера (политика CORS) при запуске приложения напрямую с диска (через <code>file://</code>) автоматическое скачивание заблокировано.</p>
+                <p style="font-weight: 600; color: var(--text-primary);">Но вы можете легко скачать аудиозапись вручную!</p>
+                <ol style="margin-left: 20px; display: flex; flex-direction: column; gap: 8px;">
+                    <li>Нажмите кнопку ниже, чтобы открыть аудио в новой вкладке.</li>
+                    <li>В новой вкладке нажмите на <strong>три точки</strong> в плеере браузера и выберите <strong>«Скачать»</strong> (или нажмите сочетание клавиш <code>Ctrl + S</code>).</li>
+                </ol>
+            </div>
+            <div class="card-footer" style="display: flex; justify-content: flex-end; gap: 12px; padding: 16px 24px; background: rgba(0, 0, 0, 0.12);">
+                <button id="btn-modal-cancel" class="btn-secondary">Отмена</button>
+                <a id="btn-modal-download" class="btn-play" target="_blank" style="text-decoration: none; padding: 10px 20px; font-size: 0.9rem; display: flex; align-items: center; gap: 8px;">
+                    <i data-lucide="external-link" style="width:16px;height:16px"></i> Открыть в новой вкладке
+                </a>
+            </div>
+        </div>
+    </div>
+
     <!-- Notification system for bookmarks and status updates -->
     <div id="toast-container" class="toast-container"></div>
 

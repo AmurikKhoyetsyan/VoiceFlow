@@ -47,6 +47,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // Toast Container
     const toastContainer = document.getElementById('toast-container');
 
+    // Fallback Modal Elements
+    const downloadModal = document.getElementById('download-modal');
+    const closeModal = document.getElementById('close-modal');
+    const btnModalCancel = document.getElementById('btn-modal-cancel');
+    const btnModalDownload = document.getElementById('btn-modal-download');
+
     // ==========================================
     // STATE VARIABLES
     // ==========================================
@@ -63,6 +69,16 @@ document.addEventListener('DOMContentLoaded', () => {
     let waveOffset = 0;
     let waveTargetAmplitude = 0;
     let waveCurrentAmplitude = 0;
+
+    // Cloud Playback Engine State
+    let cloudAudioQueue = [];
+    let currentCloudAudio = null;
+    let currentCloudIndex = 0;
+    let cloudHighlightInterval = null;
+
+    // Playback Parameter Tracking (to fix voice/text change conflicts)
+    let lastSpokenText = '';
+    let lastSpokenVoice = '';
 
     // Default template text
     const templates = {
@@ -235,6 +251,27 @@ document.addEventListener('DOMContentLoaded', () => {
         // Populate dropdown
         voiceSelect.innerHTML = '';
         
+        // Add premium cloud voices first (pitch-shifted for distinct sound)
+        const cloudVoices = [
+            { value: 'cloud-ru',          label: '🇷🇺 Женский — Стандартный',     selected: true },
+            { value: 'cloud-ru-high',     label: '🇷🇺 Женский — Высокий' },
+            { value: 'cloud-ru-soft',     label: '🇷🇺 Женский — Мягкий' },
+            { value: 'cloud-ru-male',     label: '🇷🇺 Мужской — Стандартный' },
+            { value: 'cloud-ru-deep',     label: '🇷🇺 Мужской — Глубокий Бас' },
+            { value: 'cloud-ru-neutral',  label: '🇷🇺 Нейтральный — Андрогин' },
+            { value: 'cloud-ru-child',    label: '🇷🇺 Детский — Звонкий' },
+            { value: 'cloud-ru-elder',    label: '🇷🇺 Пожилой — Размеренный' },
+            { value: 'cloud-en',          label: '🇺🇸 Английский — Женский' },
+            { value: 'cloud-en-male',     label: '🇺🇸 Английский — Мужской' },
+        ];
+        cloudVoices.forEach(cv => {
+            const opt = document.createElement('option');
+            opt.value = cv.value;
+            opt.textContent = cv.label;
+            if (cv.selected) opt.selected = true;
+            voiceSelect.appendChild(opt);
+        });
+        
         if (voices.length === 0) {
             const opt = document.createElement('option');
             opt.textContent = 'Голоса не найдены в вашей ОС';
@@ -281,6 +318,197 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // ==========================================
+    // CLOUD SPEECH SYNTHESIS ENGINE
+    // ==========================================
+    // Maps voice value to TTS parameters including pitchRate for voice differentiation
+    // pitchRate changes both speed and pitch when preservesPitch=false,
+    // creating genuinely different-sounding voices from the same TTS source
+    const getCloudVoiceParams = (voiceValue) => {
+        const map = {
+            'cloud-ru':        { lang: 'ru', pitchRate: 1.0  },  // Standard female
+            'cloud-ru-high':   { lang: 'ru', pitchRate: 1.15 },  // Higher female
+            'cloud-ru-soft':   { lang: 'ru', pitchRate: 1.06 },  // Soft female (slightly higher)
+            'cloud-ru-male':   { lang: 'ru', pitchRate: 0.82 },  // Standard male
+            'cloud-ru-deep':   { lang: 'ru', pitchRate: 0.7  },  // Deep bass male
+            'cloud-ru-neutral':{ lang: 'ru', pitchRate: 0.92 },  // Androgynous neutral
+            'cloud-ru-child':  { lang: 'ru', pitchRate: 1.3  },  // Child high-pitched
+            'cloud-ru-elder':  { lang: 'ru', pitchRate: 0.78 },  // Elderly slower
+            'cloud-en':        { lang: 'en', pitchRate: 1.0  },  // Standard English female
+            'cloud-en-male':   { lang: 'en', pitchRate: 0.82 },  // English male
+        };
+        return map[voiceValue] || { lang: 'ru', pitchRate: 1.0 };
+    };
+
+    const buildTTSUrl = (chunk, lang) => {
+        return `https://translate.google.com/translate_tts?ie=UTF-8&tl=${lang}&client=tw-ob&q=${encodeURIComponent(chunk)}`;
+    };
+
+    const playCloudAudio = async (text, lang) => {
+        stopSpeech(); // Clean up existing
+        
+        showToast('Генерация облачного голоса...', 'info');
+        
+        try {
+            const textChunks = splitTextIntoSpeechChunks(text);
+            if (textChunks.length === 0) return;
+            
+            // Set playback states
+            isSpeaking = true;
+            isPaused = false;
+            updatePlaybackUI('speaking');
+            btnStop.disabled = false;
+            waveTargetAmplitude = 30 * parseFloat(volumeSlider.value);
+            
+            cloudAudioQueue = textChunks.map(chunk => {
+                const url = buildTTSUrl(chunk, lang);
+                return { text: chunk, url: url };
+            });
+            
+            currentCloudIndex = 0;
+            playNextCloudChunk();
+        } catch (e) {
+            console.error(e);
+            showToast('Ошибка при загрузке облачного голоса', 'error');
+            stopSpeech();
+        }
+    };
+
+    const playNextCloudChunk = () => {
+        if (currentCloudIndex >= cloudAudioQueue.length) {
+            stopSpeech();
+            showToast('Озвучивание завершено', 'success');
+            return;
+        }
+        
+        const chunkData = cloudAudioQueue[currentCloudIndex];
+        currentCloudAudio = new Audio(chunkData.url);
+        currentCloudAudio.volume = parseFloat(volumeSlider.value);
+        
+        // Apply pitch-shifting: preservesPitch=false makes playbackRate change pitch too
+        const voiceParams = getCloudVoiceParams(voiceSelect.value);
+        currentCloudAudio.preservesPitch = false;
+        currentCloudAudio.mozPreservesPitch = false;  // Firefox
+        currentCloudAudio.webkitPreservesPitch = false; // Safari
+        currentCloudAudio.playbackRate = voiceParams.pitchRate;
+        
+        // Simulated word highlighting
+        let wordIndexInChunk = 0;
+        const words = chunkData.text.split(/\s+/);
+        
+        const fullText = textInput.value;
+        const chunkStartCharIndex = fullText.indexOf(chunkData.text);
+        
+        const speedRate = parseFloat(rateSlider.value);
+        // Adjust highlight timing: divide by pitchRate since audio speed changes with pitch
+        const msPerWord = (420 / speedRate) / voiceParams.pitchRate;
+        let currentWordCharOffset = 0;
+        
+        clearInterval(cloudHighlightInterval);
+        
+        const highlightWord = () => {
+            if (wordIndexInChunk >= words.length) {
+                clearInterval(cloudHighlightInterval);
+                return;
+            }
+            
+            const currentWord = words[wordIndexInChunk];
+            const relativeText = chunkData.text.substring(currentWordCharOffset);
+            const relativeWordIndex = relativeText.indexOf(currentWord);
+            const actualCharIndex = chunkStartCharIndex + currentWordCharOffset + relativeWordIndex;
+            
+            updateBackdrop(actualCharIndex, currentWord.length);
+            
+            currentWordCharOffset += relativeWordIndex + currentWord.length;
+            wordIndexInChunk++;
+        };
+        
+        highlightWord();
+        cloudHighlightInterval = setInterval(highlightWord, msPerWord);
+        
+        currentCloudAudio.onended = () => {
+            clearInterval(cloudHighlightInterval);
+            currentCloudIndex++;
+            playNextCloudChunk();
+        };
+        
+        currentCloudAudio.onerror = () => {
+            clearInterval(cloudHighlightInterval);
+            showToast('Ошибка облачного воспроизведения', 'error');
+            stopSpeech();
+        };
+        
+        currentCloudAudio.play().catch(err => {
+            console.error(err);
+            clearInterval(cloudHighlightInterval);
+            showToast('Кликните на страницу для воспроизведения', 'error');
+            stopSpeech();
+        });
+    };
+
+    const pauseCloudAudio = () => {
+        if (currentCloudAudio) {
+            currentCloudAudio.pause();
+            clearInterval(cloudHighlightInterval);
+            isPaused = true;
+            updatePlaybackUI('paused');
+            waveTargetAmplitude = 0;
+            showToast('Воспроизведение приостановлено', 'info');
+        }
+    };
+
+    const resumeCloudAudio = () => {
+        if (currentCloudAudio) {
+            currentCloudAudio.play();
+            isPaused = false;
+            updatePlaybackUI('speaking');
+            waveTargetAmplitude = 30 * parseFloat(volumeSlider.value);
+            
+            // Resume simulated highlights
+            const chunkData = cloudAudioQueue[currentCloudIndex];
+            const words = chunkData.text.split(/\s+/);
+            const fullText = textInput.value;
+            const chunkStartCharIndex = fullText.indexOf(chunkData.text);
+            const speedRate = parseFloat(rateSlider.value);
+            const voiceParams = getCloudVoiceParams(voiceSelect.value);
+            const msPerWord = (420 / speedRate) / voiceParams.pitchRate;
+            
+            // Find current character offset approximately
+            let wordIndexInChunk = 0;
+            let currentWordCharOffset = 0;
+            
+            clearInterval(cloudHighlightInterval);
+            const highlightWord = () => {
+                if (wordIndexInChunk >= words.length) {
+                    clearInterval(cloudHighlightInterval);
+                    return;
+                }
+                const currentWord = words[wordIndexInChunk];
+                const relativeText = chunkData.text.substring(currentWordCharOffset);
+                const relativeWordIndex = relativeText.indexOf(currentWord);
+                const actualCharIndex = chunkStartCharIndex + currentWordCharOffset + relativeWordIndex;
+                
+                updateBackdrop(actualCharIndex, currentWord.length);
+                
+                currentWordCharOffset += relativeWordIndex + currentWord.length;
+                wordIndexInChunk++;
+            };
+            
+            cloudHighlightInterval = setInterval(highlightWord, msPerWord);
+            showToast('Воспроизведение возобновлено', 'info');
+        }
+    };
+
+    const stopCloudAudio = () => {
+        if (currentCloudAudio) {
+            currentCloudAudio.pause();
+            currentCloudAudio = null;
+        }
+        clearInterval(cloudHighlightInterval);
+        cloudAudioQueue = [];
+        currentCloudIndex = 0;
+    };
+
     // Playback Logic
     const speakText = () => {
         const text = textInput.value.trim();
@@ -289,20 +517,49 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        if (isSpeaking) {
+        const selectedVoiceValue = voiceSelect.value;
+        const isCloudVoice = selectedVoiceValue.startsWith('cloud-');
+
+        // Check if text or voice changed while speaking
+        const parametersChanged = (text !== lastSpokenText || selectedVoiceValue !== lastSpokenVoice);
+
+        if (isSpeaking && !parametersChanged) {
             if (isPaused) {
                 // Resume Speech
-                synth.resume();
-                isPaused = false;
-                updatePlaybackUI('speaking');
-                showToast('Воспроизведение возобновлено', 'info');
+                if (isCloudVoice) {
+                    resumeCloudAudio();
+                } else {
+                    synth.resume();
+                    isPaused = false;
+                    updatePlaybackUI('speaking');
+                    showToast('Воспроизведение возобновлено', 'info');
+                }
             } else {
                 // Pause Speech
-                synth.pause();
-                isPaused = true;
-                updatePlaybackUI('paused');
-                showToast('Воспроизведение приостановлено', 'info');
+                if (isCloudVoice) {
+                    pauseCloudAudio();
+                } else {
+                    synth.pause();
+                    isPaused = true;
+                    updatePlaybackUI('paused');
+                    showToast('Воспроизведение приостановлено', 'info');
+                }
             }
+            return;
+        }
+
+        // If speaking but parameters changed, stop the previous speech first
+        if (isSpeaking && parametersChanged) {
+            stopSpeech();
+        }
+
+        // Update tracking variables
+        lastSpokenText = text;
+        lastSpokenVoice = selectedVoiceValue;
+
+        if (isCloudVoice) {
+            const cloudParams = getCloudVoiceParams(selectedVoiceValue);
+            playCloudAudio(text, cloudParams.lang);
             return;
         }
 
@@ -379,17 +636,21 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const stopSpeech = () => {
+        // Stop Cloud
+        stopCloudAudio();
+
         if (synth && (isSpeaking || isPaused)) {
             synth.cancel();
-            isSpeaking = false;
-            isPaused = false;
-            currentUtterance = null;
-            updatePlaybackUI('stopped');
-            btnStop.disabled = true;
-            updateBackdrop();
-            waveTargetAmplitude = 0;
-            showToast('Воспроизведение остановлено', 'info');
         }
+        
+        isSpeaking = false;
+        isPaused = false;
+        currentUtterance = null;
+        updatePlaybackUI('stopped');
+        btnStop.disabled = true;
+        updateBackdrop();
+        waveTargetAmplitude = 0;
+        showToast('Воспроизведение остановлено', 'info');
     };
 
     const updatePlaybackUI = (state) => {
@@ -598,7 +859,16 @@ document.addEventListener('DOMContentLoaded', () => {
             li.className = 'bookmark-item';
             
             // Format voice readable name or locale code
-            const voiceShort = bookmark.voiceName ? bookmark.voiceName.split(' ')[0] : 'По умолчанию';
+            let voiceShort = 'По умолчанию';
+            const cloudLabels = {
+                'cloud-ru': 'Женский Стандарт', 'cloud-ru-high': 'Женский Высокий',
+                'cloud-ru-soft': 'Женский Мягкий', 'cloud-ru-male': 'Мужской Стандарт',
+                'cloud-ru-deep': 'Мужской Бас', 'cloud-ru-neutral': 'Нейтральный',
+                'cloud-ru-child': 'Детский', 'cloud-ru-elder': 'Пожилой',
+                'cloud-en': 'English Ж', 'cloud-en-male': 'English М'
+            };
+            if (cloudLabels[bookmark.voiceName]) voiceShort = cloudLabels[bookmark.voiceName];
+            else if (bookmark.voiceName) voiceShort = bookmark.voiceName.split(' ')[0];
 
             li.innerHTML = `
                 <div class="bookmark-content">
@@ -651,12 +921,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     volumeSlider.dispatchEvent(new Event('input'));
                     
                     // Select correct voice index
-                    let matchedVoiceIdx = -1;
-                    if (item.voiceName) {
-                        matchedVoiceIdx = voices.findIndex(v => v.name === item.voiceName);
-                    }
-                    if (matchedVoiceIdx !== -1) {
-                        voiceSelect.value = matchedVoiceIdx;
+                    if (item.voiceName && item.voiceName.startsWith('cloud-')) {
+                        voiceSelect.value = item.voiceName;
+                    } else if (item.voiceName) {
+                        let matchedVoiceIdx = voices.findIndex(v => v.name === item.voiceName);
+                        if (matchedVoiceIdx !== -1) {
+                            voiceSelect.value = matchedVoiceIdx;
+                        }
                     }
 
                     setTimeout(() => speakText(), 100);
@@ -685,12 +956,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     volumeSlider.dispatchEvent(new Event('input'));
                     
                     // Select correct voice
-                    let matchedVoiceIdx = -1;
-                    if (item.voiceName) {
-                        matchedVoiceIdx = voices.findIndex(v => v.name === item.voiceName);
-                    }
-                    if (matchedVoiceIdx !== -1) {
-                        voiceSelect.value = matchedVoiceIdx;
+                    if (item.voiceName && item.voiceName.startsWith('cloud-')) {
+                        voiceSelect.value = item.voiceName;
+                    } else if (item.voiceName) {
+                        let matchedVoiceIdx = voices.findIndex(v => v.name === item.voiceName);
+                        if (matchedVoiceIdx !== -1) {
+                            voiceSelect.value = matchedVoiceIdx;
+                        }
                     }
 
                     showToast('Фраза загружена в редактор', 'info');
@@ -719,12 +991,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const currentVoices = synth.getVoices();
         const selectedVoiceIdx = voiceSelect.value;
-        const voiceObj = selectedVoiceIdx !== "" && currentVoices[selectedVoiceIdx] ? currentVoices[selectedVoiceIdx] : null;
+        const isCloud = selectedVoiceIdx === 'cloud-ru' || selectedVoiceIdx === 'cloud-en';
+        const voiceObj = !isCloud && selectedVoiceIdx !== "" && currentVoices[selectedVoiceIdx] ? currentVoices[selectedVoiceIdx] : null;
         
         const newBookmark = {
             id: Date.now().toString(),
             text: text,
-            voiceName: voiceObj ? voiceObj.name : '',
+            voiceName: isCloud ? selectedVoiceIdx : (voiceObj ? voiceObj.name : ''),
             rate: parseFloat(rateSlider.value),
             pitch: parseFloat(pitchSlider.value),
             volume: parseFloat(volumeSlider.value),
@@ -813,28 +1086,37 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const currentVoices = synth.getVoices();
         const selectedVoiceIdx = voiceSelect.value;
-        const voiceObj = selectedVoiceIdx !== "" && currentVoices[selectedVoiceIdx] ? currentVoices[selectedVoiceIdx] : null;
-        let lang = 'ru';
-        if (voiceObj && voiceObj.lang) {
-            lang = voiceObj.lang.split('-')[0].split('_')[0]; // Extract 'ru', 'en', etc.
+        const isCloud = selectedVoiceIdx.startsWith('cloud-') || selectedVoiceIdx.startsWith('rv-');
+        const voiceObj = !isCloud && selectedVoiceIdx !== "" && currentVoices[selectedVoiceIdx] ? currentVoices[selectedVoiceIdx] : null;
+        
+        const cloudParams = isCloud ? getCloudVoiceParams(selectedVoiceIdx) : null;
+        let lang = cloudParams ? cloudParams.lang : 'ru';
+        if (!isCloud && voiceObj && voiceObj.lang) {
+            lang = voiceObj.lang.split('-')[0].split('_')[0]; // Extract 'ru', 'en'
         }
+
+        btnDownload.disabled = true;
+        const originalHtml = btnDownload.innerHTML;
+        btnDownload.innerHTML = `<i data-lucide="loader" class="btn-icon animate-spin"></i>`;
+        lucide.createIcons();
 
         showToast('Подготовка аудиофайла к скачиванию...', 'info');
         
         try {
+            // Force fallback if opened locally via file:// as browser security (CORS) blocks direct fetch
+            if (window.location.protocol === 'file:') {
+                throw new Error('Local file scheme detected - CORS fallback required');
+            }
+
             const textChunks = splitTextIntoSpeechChunks(text);
             if (textChunks.length === 0) return;
 
-            btnDownload.disabled = true;
-            const originalHtml = btnDownload.innerHTML;
-            btnDownload.innerHTML = `<i data-lucide="loader" class="btn-icon animate-spin"></i>`;
-            lucide.createIcons();
-
             const audioBlobs = [];
 
+            const cloudP = isCloud ? getCloudVoiceParams(selectedVoiceIdx) : { lang: lang };
             for (let i = 0; i < textChunks.length; i++) {
                 const chunk = textChunks[i];
-                const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${lang}&client=tw-ob&q=${encodeURIComponent(chunk)}`;
+                const url = buildTTSUrl(chunk, cloudP.lang);
                 
                 const response = await fetch(url);
                 if (!response.ok) {
@@ -865,12 +1147,26 @@ document.addEventListener('DOMContentLoaded', () => {
             lucide.createIcons();
         } catch (error) {
             console.error(error);
-            showToast('Не удалось скачать аудио. Попробуйте еще раз.', 'error');
+            showToast('Прямая загрузка заблокирована CORS. Переключаем на ручное скачивание...', 'warning');
+            
+            // Prepare fallback download URL
+            const previewText = text.substring(0, 150);
+            const cloudP2 = isCloud ? getCloudVoiceParams(selectedVoiceIdx) : { lang: lang };
+            const directUrl = buildTTSUrl(previewText, cloudP2.lang);
+            
+            if (btnModalDownload) btnModalDownload.href = directUrl;
+            if (downloadModal) downloadModal.classList.add('active');
+            
             btnDownload.disabled = false;
-            btnDownload.innerHTML = `<i data-lucide="download" class="btn-icon"></i>`;
+            btnDownload.innerHTML = originalHtml;
             lucide.createIcons();
         }
     });
+
+    // Fallback Modal Listeners
+    if (closeModal) closeModal.addEventListener('click', () => downloadModal.classList.remove('active'));
+    if (btnModalCancel) btnModalCancel.addEventListener('click', () => downloadModal.classList.remove('active'));
+    if (btnModalDownload) btnModalDownload.addEventListener('click', () => downloadModal.classList.remove('active'));
 
     // Prepopulate welcome text
     textInput.value = "Привет! Это VoiceFlow — высокотехнологичный синтезатор речи, работающий прямо в вашем браузере. Выберите голос справа, настройте скорость и высоту звучания, а затем нажмите кнопку «Озвучить». Наблюдайте за плавным движением аудиоволн и подсветкой каждого произносимого слова!";
