@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VoiceFlow - Премиальный Text-to-Speech</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Main CSS -->
+    <link rel="stylesheet" href="style.css">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+    <!-- Background glow shapes for premium glassmorphism effect -->
+    <div class="bg-glow bg-glow-1"></div>
+    <div class="bg-glow bg-glow-2"></div>
+
+    <div class="app-container">
+        <!-- HEADER -->
+        <header class="app-header">
+            <div class="logo-area">
+                <div class="logo-icon-wrapper">
+                    <i data-lucide="audio-lines" class="logo-icon"></i>
+                </div>
+                <div>
+                    <h1 class="logo-text">Voice<span>Flow</span></h1>
+                    <p class="logo-sub">Интеллектуальный синтез речи</p>
+                </div>
+            </div>
+
+            <div class="header-controls">
+                <button id="theme-toggle" class="btn-icon" title="Переключить тему">
+                    <i data-lucide="sun" class="icon-sun"></i>
+                    <i data-lucide="moon" class="icon-moon"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- MAIN LAYOUT -->
+        <main class="app-main">
+            <!-- LEFT PANEL: Text Editor & Highlighting -->
+            <section class="editor-section card">
+                <div class="card-header">
+                    <div class="header-title">
+                        <i data-lucide="file-text" class="card-icon text-primary"></i>
+                        <h2>Ваш текст</h2>
+                    </div>
+                    <div class="preset-templates">
+                        <span class="preset-label">Шаблоны:</span>
+                        <button class="btn-preset" data-template="greeting">Приветствие</button>
+                        <button class="btn-preset" data-template="story">История</button>
+                        <button class="btn-preset" data-template="pitch">Презентация</button>
+                        <button class="btn-preset" data-template="tongue">Скороговорка</button>
+                    </div>
+                </div>
+
+                <div class="editor-body">
+                    <!-- Overlaid div for word highlighting -->
+                    <div class="highlight-container">
+                        <div id="text-backdrop" class="text-backdrop"></div>
+                        <textarea id="text-input" placeholder="Введите здесь текст для озвучивания..." spellcheck="false"></textarea>
+                    </div>
+                </div>
+
+                <div class="card-footer editor-footer">
+                    <div class="stats-group">
+                        <span class="stat-item"><strong id="char-count">0</strong> символов</span>
+                        <span class="stat-separator">•</span>
+                        <span class="stat-item"><strong id="word-count">0</strong> слов</span>
+                        <span class="stat-separator">•</span>
+                        <span class="stat-item"><i data-lucide="clock" class="stat-icon"></i> <strong id="time-estimate">0 сек</strong></span>
+                    </div>
+                    <div class="editor-actions">
+                        <button id="btn-clear" class="btn-secondary" title="Очистить поле">
+                            <i data-lucide="trash-2"></i> Очистить
+                        </button>
+                        <button id="btn-paste" class="btn-secondary" title="Вставить из буфера">
+                            <i data-lucide="clipboard"></i> Вставить
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- RIGHT PANEL: Settings, Waveform, & Bookmarks -->
+            <section class="control-section">
+                <!-- VISUALIZER CARD -->
+                <div class="visualizer-card card">
+                    <div class="visualizer-container">
+                        <canvas id="waveform-canvas"></canvas>
+                        <div id="visualizer-status" class="visualizer-status">
+                            <span class="status-indicator"></span>
+                            <span class="status-text">Готов к воспроизведению</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- CONTROLS CARD -->
+                <div class="controls-card card">
+                    <div class="card-header">
+                        <div class="header-title">
+                            <i data-lucide="sliders" class="card-icon text-secondary"></i>
+                            <h2>Настройки озвучки</h2>
+                        </div>
+                    </div>
+
+                    <div class="controls-body">
+                        <!-- Voice Selector -->
+                        <div class="control-group">
+                            <label for="voice-select">Голос и Язык</label>
+                            <div class="voice-selector-wrapper">
+                                <i data-lucide="languages" class="select-icon"></i>
+                                <select id="voice-select">
+                                    <option value="" disabled selected>Загрузка голосов...</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Sliders -->
+                        <div class="sliders-grid">
+                            <!-- Speed (Rate) -->
+                            <div class="control-group">
+                                <div class="slider-header">
+                                    <label for="rate-slider">Скорость речи</label>
+                                    <span id="rate-value" class="slider-badge">1.0x</span>
+                                </div>
+                                <div class="slider-wrapper">
+                                    <input type="range" id="rate-slider" min="0.5" max="2.0" step="0.1" value="1.0">
+                                    <div class="slider-presets">
+                                        <button class="btn-preset-val" data-slider="rate" data-val="0.8">0.8x</button>
+                                        <button class="btn-preset-val" data-slider="rate" data-val="1.0">1.0x</button>
+                                        <button class="btn-preset-val" data-slider="rate" data-val="1.5">1.5x</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Pitch -->
+                            <div class="control-group">
+                                <div class="slider-header">
+                                    <label for="pitch-slider">Тон (Высота)</label>
+                                    <span id="pitch-value" class="slider-badge">1.0</span>
+                                </div>
+                                <div class="slider-wrapper">
+                                    <input type="range" id="pitch-slider" min="0.5" max="1.8" step="0.1" value="1.0">
+                                    <div class="slider-presets">
+                                        <button class="btn-preset-val" data-slider="pitch" data-val="0.7">Низкий</button>
+                                        <button class="btn-preset-val" data-slider="pitch" data-val="1.0">Норм</button>
+                                        <button class="btn-preset-val" data-slider="pitch" data-val="1.3">Высокий</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Volume -->
+                            <div class="control-group">
+                                <div class="slider-header">
+                                    <label for="volume-slider">Громкость</label>
+                                    <span id="volume-value" class="slider-badge">100%</span>
+                                </div>
+                                <div class="slider-wrapper">
+                                    <input type="range" id="volume-slider" min="0" max="1" step="0.05" value="1">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Main Player Buttons -->
+                    <div class="playback-controls">
+                        <button id="btn-stop" class="btn-action btn-stop" title="Остановить (Esc)" disabled>
+                            <i data-lucide="square" class="btn-icon"></i>
+                        </button>
+                        <button id="btn-play" class="btn-action btn-play" title="Озвучить (Ctrl + Enter)">
+                            <i data-lucide="play" class="btn-icon play-icon"></i>
+                            <i data-lucide="pause" class="btn-icon pause-icon hidden"></i>
+                            <span class="btn-label">Озвучить</span>
+                        </button>
+                        <button id="btn-bookmark" class="btn-action btn-bookmark" title="Сохранить в избранное">
+                            <i data-lucide="bookmark" class="btn-icon"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- BOOKMARKS CARD -->
+                <div class="bookmarks-card card">
+                    <div class="card-header">
+                        <div class="header-title">
+                            <i data-lucide="folder-heart" class="card-icon text-accent"></i>
+                            <h2>Сохраненные фразы</h2>
+                        </div>
+                        <span id="bookmark-count" class="badge">0</span>
+                    </div>
+                    <div class="card-body scrollable">
+                        <div id="bookmarks-empty" class="empty-state">
+                            <i data-lucide="bookmark-check" class="empty-icon"></i>
+                            <p>Нет сохраненных фраз. Нажмите кнопку с закладкой, чтобы сохранить текущий текст.</p>
+                        </div>
+                        <ul id="bookmarks-list" class="bookmarks-list">
+                            <!-- Dynamic items will be added here -->
+                        </ul>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Notification system for bookmarks and status updates -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- App Logic -->
+    <script src="app.js"></script>
+</body>
+</html>
