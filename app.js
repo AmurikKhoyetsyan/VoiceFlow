@@ -22,6 +22,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnPlay = document.getElementById('btn-play');
     const btnStop = document.getElementById('btn-stop');
     const btnBookmark = document.getElementById('btn-bookmark');
+    const btnDownload = document.getElementById('btn-download');
     
     // Controls
     const voiceSelect = document.getElementById('voice-select');
@@ -777,6 +778,99 @@ document.addEventListener('DOMContentLoaded', () => {
             }, 300);
         }, 3000);
     };
+
+    // ==========================================
+    // AUDIO MP3 GENERATOR & DOWNLOADER
+    // ==========================================
+    const splitTextIntoSpeechChunks = (text) => {
+        const maxLen = 180;
+        const chunks = [];
+        const words = text.split(/\s+/);
+        let currentChunk = '';
+        
+        for (const word of words) {
+            if ((currentChunk + ' ' + word).trim().length > maxLen) {
+                if (currentChunk.trim()) {
+                    chunks.push(currentChunk.trim());
+                }
+                currentChunk = word;
+            } else {
+                currentChunk = (currentChunk + ' ' + word).trim();
+            }
+        }
+        if (currentChunk.trim()) {
+            chunks.push(currentChunk.trim());
+        }
+        return chunks;
+    };
+
+    btnDownload.addEventListener('click', async () => {
+        const text = textInput.value.trim();
+        if (!text) {
+            showToast('Пожалуйста, введите текст для скачивания', 'error');
+            return;
+        }
+
+        const currentVoices = synth.getVoices();
+        const selectedVoiceIdx = voiceSelect.value;
+        const voiceObj = selectedVoiceIdx !== "" && currentVoices[selectedVoiceIdx] ? currentVoices[selectedVoiceIdx] : null;
+        let lang = 'ru';
+        if (voiceObj && voiceObj.lang) {
+            lang = voiceObj.lang.split('-')[0].split('_')[0]; // Extract 'ru', 'en', etc.
+        }
+
+        showToast('Подготовка аудиофайла к скачиванию...', 'info');
+        
+        try {
+            const textChunks = splitTextIntoSpeechChunks(text);
+            if (textChunks.length === 0) return;
+
+            btnDownload.disabled = true;
+            const originalHtml = btnDownload.innerHTML;
+            btnDownload.innerHTML = `<i data-lucide="loader" class="btn-icon animate-spin"></i>`;
+            lucide.createIcons();
+
+            const audioBlobs = [];
+
+            for (let i = 0; i < textChunks.length; i++) {
+                const chunk = textChunks[i];
+                const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${lang}&client=tw-ob&q=${encodeURIComponent(chunk)}`;
+                
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`Ошибка загрузки фрагмента ${i + 1}`);
+                }
+                
+                const blob = await response.blob();
+                audioBlobs.push(blob);
+            }
+
+            const finalBlob = new Blob(audioBlobs, { type: 'audio/mp3' });
+            const downloadUrl = URL.createObjectURL(finalBlob);
+            const a = document.createElement('a');
+            a.href = downloadUrl;
+            
+            const firstWords = text.split(/\s+/).slice(0, 3).join('_').replace(/[^a-zA-Zа-яА-Я0-9_]/g, '');
+            a.download = `voiceflow_${firstWords || 'audio'}.mp3`;
+            
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(downloadUrl);
+            
+            showToast('Аудиофайл успешно скачан!', 'success');
+            
+            btnDownload.disabled = false;
+            btnDownload.innerHTML = originalHtml;
+            lucide.createIcons();
+        } catch (error) {
+            console.error(error);
+            showToast('Не удалось скачать аудио. Попробуйте еще раз.', 'error');
+            btnDownload.disabled = false;
+            btnDownload.innerHTML = `<i data-lucide="download" class="btn-icon"></i>`;
+            lucide.createIcons();
+        }
+    });
 
     // Prepopulate welcome text
     textInput.value = "Привет! Это VoiceFlow — высокотехнологичный синтезатор речи, работающий прямо в вашем браузере. Выберите голос справа, настройте скорость и высоту звучания, а затем нажмите кнопку «Озвучить». Наблюдайте за плавным движением аудиоволн и подсветкой каждого произносимого слова!";

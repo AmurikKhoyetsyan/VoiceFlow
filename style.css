@@ -668,7 +668,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
 /* Main Playback Bar */
 .playback-controls {
     display: grid;
-    grid-template-columns: 60px 1fr 60px;
+    grid-template-columns: 60px 1fr 60px 60px;
     gap: 12px;
     padding: 0 24px 24px 24px;
 }
@@ -741,6 +741,19 @@ input[type="range"]::-webkit-slider-thumb:hover {
     color: #ffffff;
     border-color: transparent;
     transform: translateY(-2px);
+}
+
+.btn-download {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-primary);
+}
+
+.btn-download:hover {
+    background: linear-gradient(135deg, #0ea5e9 0%, #06b6d4 100%);
+    color: #ffffff;
+    border-color: transparent;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(14, 165, 233, 0.25);
 }
 
 /* ==========================================
@@ -1037,4 +1050,12 @@ button {
 #text-backdrop::-webkit-scrollbar-thumb:hover,
 #text-input::-webkit-scrollbar-thumb:hover {
     background: var(--scrollbar-hover);
+}
+
+/* Spinner Animation for buttons */
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+.animate-spin {
+    animation: spin 1s linear infinite;
 }
